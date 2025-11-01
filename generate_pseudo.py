@@ -114,7 +114,9 @@ def dp_means(stamps, features, classes, lam=2.0, max_iter=100):
     n = len(features)
     k = 1
     mu = [np.mean(features, axis=0)]   # khởi tạo tâm đầu tiên
-    z = np.zeros(n, dtype=int)         # mỗi điểm ban đầu thuộc cụm 0
+    z = np.zeros(n, dtype=int)         # mỗi điểm ban đầu thuộc cụm
+
+    iter_count = 0
 
     for _ in range(max_iter):
         changed = False
@@ -142,6 +144,8 @@ def dp_means(stamps, features, classes, lam=2.0, max_iter=100):
 
         if not changed:
             break
+
+    print(f"[DP-means] Converged after {iter_count} iterations, total clusters: {k}")
 
     # --- Sinh nhãn giả ---
     output_classes = np.zeros_like(classes) - 1
