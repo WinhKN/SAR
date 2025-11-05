@@ -45,7 +45,7 @@ def intersection_labels(*labels):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default="50salads", help='three dataset: breakfast, 50salads, gtea')
-    parser.add_argument('--type', default="all", help='all, energy_function, constrained_k_medoids, temporal_agnes, dp_means, k_shape_clustering')
+    parser.add_argument('--type', default="all", help='all, energy_function, constrained_k_medoids, temporal_agnes, dp_means, hdp, k_shape_clustering')
 
     args = parser.parse_args()
 

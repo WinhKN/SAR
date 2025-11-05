@@ -101,7 +101,7 @@ def k_shape_clustering(stamps, features, classes, n_clusters=None, random_state=
     return output_classes, true_num, pseudo_num, 0
 
 
-def dp_means(stamps, features, classes, lam=2.0, max_iter=100):
+def dp_means(stamps, features, classes, lam=3.0, max_iter=100):
     """
     DP-means clustering for pseudo label generation
     Args:
@@ -160,6 +160,125 @@ def dp_means(stamps, features, classes, lam=2.0, max_iter=100):
         label2class[j] = classes[closest_stamp]
         for idx in indices:
             output_classes[idx] = label2class[j]
+
+    true_num, pseudo_num = eval_pseudo_labels(output_classes, classes)
+    for each in stamps:
+        assert classes[each] == output_classes[each]
+
+    return output_classes, true_num, pseudo_num, 0
+
+
+def hdp(stamps, features, classes, lam_local=3.0, lam_global=6.0, max_iter=100):
+    """
+    Hard Gaussian HDP clustering for pseudo label generation
+
+    Args:
+        stamps (array): chỉ số timestamp (frame có nhãn thật)
+        features (array): đặc trưng (L, D)
+        classes (array): nhãn thật (L,)
+        lam_local (float): penalty khi tạo local cluster mới
+        lam_global (float): penalty khi tạo global cluster mới
+        max_iter (int): số vòng lặp tối đa
+    Returns:
+        output_classes, true_num, pseudo_num, stop_iter
+    """
+    # số lượng dataset (ở đây mỗi video coi như 1 dataset)
+    # để giữ cấu trúc code, ta coi toàn bộ video là 1 dataset duy nhất
+    n = len(features)
+    j = 0  # chỉ 1 dataset
+    g = 1  # số global cluster
+    k_j = 1  # số local cluster cho dataset j
+    mu = [np.mean(features, axis=0)]  # global mean ban đầu
+
+    # khởi tạo chỉ số local và mapping local->global
+    z_ij = np.ones(n, dtype=int)
+    v_jc = {1: 1}
+
+    for iteration in range(max_iter):
+        changed = False
+
+        # ----- STEP 4: cập nhật gán điểm -----
+        for i in range(n):
+            # khoảng cách tới từng global cluster
+            d_ijp = [np.linalg.norm(features[i] - mu_p)**2 for mu_p in mu]
+
+            # cộng penalty λ_local cho global cluster chưa có trong dataset j
+            for p in range(g):
+                if p + 1 not in v_jc.values():
+                    d_ijp[p] += lam_local
+
+            # kiểm tra có cần tạo cluster mới không
+            min_dist = np.min(d_ijp)
+            if min_dist > lam_local + lam_global:
+                # tạo local + global mới
+                k_j += 1
+                z_ij[i] = k_j
+                g += 1
+                mu.append(features[i])
+                v_jc[k_j] = g
+                changed = True
+            else:
+                p_hat = np.argmin(d_ijp) + 1
+                found = False
+                for c, vp in v_jc.items():
+                    if vp == p_hat:
+                        z_ij[i] = c
+                        found = True
+                        break
+                if not found:
+                    k_j += 1
+                    z_ij[i] = k_j
+                    v_jc[k_j] = p_hat
+                    changed = True
+
+        # ----- STEP 5: cập nhật local clusters -----
+        for c in range(1, k_j + 1):
+            S_jc = features[z_ij == c]
+            if len(S_jc) == 0:
+                continue
+            mu_bar_jc = np.mean(S_jc, axis=0)
+
+            d_bar_jcp = [np.sum(np.linalg.norm(S_jc - mu[p], axis=1)**2) for p in range(g)]
+            internal_error = np.sum(np.linalg.norm(S_jc - mu_bar_jc, axis=1)**2)
+
+            if np.min(d_bar_jcp) > lam_global + internal_error:
+                g += 1
+                v_jc[c] = g
+                mu.append(mu_bar_jc)
+                changed = True
+            else:
+                v_jc[c] = np.argmin(d_bar_jcp) + 1
+
+        # ----- STEP 6: cập nhật lại mean global -----
+        new_mu = []
+        for p in range(1, g + 1):
+            points = []
+            for c, vp in v_jc.items():
+                if vp == p:
+                    points.extend(features[z_ij == c])
+            if len(points) > 0:
+                new_mu.append(np.mean(points, axis=0))
+            else:
+                new_mu.append(mu[p - 1])
+        mu = new_mu
+
+        if not changed:
+            print(f"[HDP] Converged after {iteration+1} iterations, total global={g}, local={k_j}")
+            break
+
+    # ----- Sinh nhãn giả -----
+    output_classes = np.zeros_like(classes) - 1
+    label2class = {}
+
+    for c, p in v_jc.items():
+        # tìm timestamp gần nhất trong local cluster
+        indices = np.where(z_ij == c)[0]
+        if len(indices) == 0:
+            continue
+        closest_stamp = min(stamps, key=lambda s: np.min(np.abs(indices - s)))
+        label2class[c] = classes[closest_stamp]
+        for idx in indices:
+            output_classes[idx] = label2class[c]
 
     true_num, pseudo_num = eval_pseudo_labels(output_classes, classes)
     for each in stamps:
@@ -460,7 +579,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', default="50salads", help='three dataset: breakfast, 50salads, gtea')
     parser.add_argument('--metric', default="euclidean", help='three metrics: euclidean, cosine, seuclidean')
     parser.add_argument('--feature', default="1024", help='1024 or 2048 or all')
-    parser.add_argument('--type', default="all", help='all, energy_function, constrained_k_medoids, temporal_agnes, dp_means, k_shape_clustering')
+    parser.add_argument('--type', default="all", help='all, energy_function, constrained_k_medoids, temporal_agnes, dp_means, hdp, k_shape_clustering')
 
     args = parser.parse_args()
 
@@ -585,6 +704,13 @@ if __name__ == "__main__":
             output_classes, true_num, pseudo_num, _ = dp_means(stamp, features, classes)
             print(
                 f"{vid.split('.')[0]}    true num: {true_num}, pseudo labels num: {pseudo_num}, length: {len(classes)}, stop iter: 0")
+            total_true += true_num
+            total_pseudo += pseudo_num
+            total_length += len(classes)
+
+        elif args.type == 'hdp':
+            output_classes, true_num, pseudo_num, _ = hdp(stamp, features, classes)
+            print(f"{vid.split('.')[0]} true num: {true_num}, pseudo labels num: {pseudo_num}, length: {len(classes)}")
             total_true += true_num
             total_pseudo += pseudo_num
             total_length += len(classes)
