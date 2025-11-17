@@ -31,8 +31,8 @@ num_layers = 10
 num_f_maps = 64
 features_dim = 2048
 bz = 8
-lr = 0.0005
-num_epochs = 70
+lr = 0.0006
+num_epochs = 140
 
 # use the full temporal resolution @ 15fps
 sample_rate = 1

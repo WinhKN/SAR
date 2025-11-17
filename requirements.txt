@@ -1,0 +1,12 @@
+torch
+torchvision
+torchaudio
+matplotlib
+tensorboard
+xlsxwriter
+scikit-learn
+numpy
+scipy
+joblib
+tslearn
+h5py
